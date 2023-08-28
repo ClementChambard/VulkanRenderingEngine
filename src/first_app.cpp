@@ -1,188 +1,115 @@
 // Copyright dummy
 #include "./first_app.hpp"
+#include "./simple_render_system.hpp"
+#include "./lve_camera.hpp"
 #include <cassert>
 #include <vulkan/vulkan_core.h>
 #include <stdexcept>
 #include <array>
 
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
+
 namespace lve {
 
 FirstApp::FirstApp() {
-    loadModels();
-    createPipelineLayout();
-    recreateSwapChain();
-    createCommandBuffers();
+    loadGameObjects();
 }
 
-FirstApp::~FirstApp() {
-    vkDestroyPipelineLayout(lveDevice.device(), pipelineLayout, nullptr);
-}
+FirstApp::~FirstApp() {}
 
 void FirstApp::run() {
+    SimpleRenderSystem simpleRenderSystem(lveDevice,
+                                        lveRenderer.getSwapChainRenderPass());
+    LveCamera camera{};
+    camera.setViewDirection(glm::vec3(0.0f), {0.5f, 0.0f, 1.0f});
+
     while (!lveWindow.shouldClose()) {
         glfwPollEvents();
-        drawFrame();
-    }
-    vkDeviceWaitIdle(lveDevice.device());
-}
+        float aspect = lveRenderer.getAspectRatio();
+        // camera.setOrthographicProjection(-aspect, aspect, -1, 1, -1, 1);
+        camera.setPerspectiveProjection(glm::radians(50.0f),
+                                        aspect, 0.1f, 10.0f);
 
-void FirstApp::createPipelineLayout() {
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 0;
-    pipelineLayoutInfo.pSetLayouts = nullptr;
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
-    pipelineLayoutInfo.pPushConstantRanges = nullptr;
-    if (vkCreatePipelineLayout(lveDevice.device(), &pipelineLayoutInfo,
-                               nullptr, &pipelineLayout) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create pipeline layout");
-    }
-}
-
-void FirstApp::createPipeline() {
-    assert(lveSwapChain != nullptr &&
-           "Cannot create pipeline before swapchain");
-    assert(pipelineLayout != nullptr &&
-           "Cannot create pipeline before pipeline layout");
-
-    PipelineConfigInfo pipelineConfig{};
-    LvePipeline::defaultPipelineConfigInfo(pipelineConfig);
-    pipelineConfig.renderPass = lveSwapChain->getRenderPass();
-    pipelineConfig.pipelineLayout = pipelineLayout;
-    lvePipeline = std::make_unique<LvePipeline>(
-        lveDevice,
-        "shaders/simple_shader.vert.spv",
-        "shaders/simple_shader.frag.spv",
-        pipelineConfig);
-}
-
-void FirstApp::createCommandBuffers() {
-    commandBuffers.resize(lveSwapChain->imageCount());
-
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = lveDevice.getCommandPool();
-    allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
-
-    if (vkAllocateCommandBuffers(lveDevice.device(), &allocInfo,
-                                 commandBuffers.data()) != VK_SUCCESS) {
-        throw std::runtime_error("failed to allocate command buffers");
-    }
-}
-
-void FirstApp::freeCommandBuffers() {
-    vkFreeCommandBuffers(lveDevice.device(), lveDevice.getCommandPool(),
-                         static_cast<uint32_t>(commandBuffers.size()),
-                         commandBuffers.data());
-    commandBuffers.clear();
-}
-
-void FirstApp::recreateSwapChain() {
-    auto extent = lveWindow.getExtent();
-    while (extent.width == 0 || extent.height == 0) {
-        extent = lveWindow.getExtent();
-        glfwWaitEvents();
-    }
-    vkDeviceWaitIdle(lveDevice.device());
-
-    if (lveSwapChain == nullptr) {
-        lveSwapChain = std::make_unique<LveSwapChain>(lveDevice, extent);
-    } else {
-        lveSwapChain = std::make_unique<LveSwapChain>(lveDevice, extent,
-                                                      std::move(lveSwapChain));
-        if (lveSwapChain->imageCount() != commandBuffers.size()) {
-            freeCommandBuffers();
-            createCommandBuffers();
+        if (auto commandBuffer = lveRenderer.beginFrame()) {
+            lveRenderer.beginSwapChainRenderPass(commandBuffer);
+            simpleRenderSystem.renderGameObjects(commandBuffer, gameObjects,
+                                                 camera);
+            lveRenderer.endSwapChainRenderPass(commandBuffer);
+            lveRenderer.endFrame();
         }
     }
-
-    // if render pass compatible, do nothing
-    createPipeline();
+    vkDeviceWaitIdle(lveDevice.device());
 }
 
-void FirstApp::recordCommandBuffer(int i) {
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+std::unique_ptr<LveModel> createCubeModel(LveDevice& device,
+                                          glm::vec3 offset) {
+  std::vector<LveModel::Vertex> vertices{
+      // left face (white)
+      {{-.5f, -.5f, -.5f}, {.9f, .9f, .9f}},
+      {{-.5f, .5f, .5f}, {.9f, .9f, .9f}},
+      {{-.5f, -.5f, .5f}, {.9f, .9f, .9f}},
+      {{-.5f, -.5f, -.5f}, {.9f, .9f, .9f}},
+      {{-.5f, .5f, -.5f}, {.9f, .9f, .9f}},
+      {{-.5f, .5f, .5f}, {.9f, .9f, .9f}},
 
-    if (vkBeginCommandBuffer(commandBuffers[i], &beginInfo) != VK_SUCCESS) {
-        throw std::runtime_error("failed to begin recording command buffer");
-    }
+      // right face (yellow)
+      {{.5f, -.5f, -.5f}, {.8f, .8f, .1f}},
+      {{.5f, .5f, .5f}, {.8f, .8f, .1f}},
+      {{.5f, -.5f, .5f}, {.8f, .8f, .1f}},
+      {{.5f, -.5f, -.5f}, {.8f, .8f, .1f}},
+      {{.5f, .5f, -.5f}, {.8f, .8f, .1f}},
+      {{.5f, .5f, .5f}, {.8f, .8f, .1f}},
 
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = lveSwapChain->getRenderPass();
-    renderPassInfo.framebuffer = lveSwapChain->getFrameBuffer(i);
+      // top face (orange, remember y axis points down)
+      {{-.5f, -.5f, -.5f}, {.9f, .6f, .1f}},
+      {{.5f, -.5f, .5f}, {.9f, .6f, .1f}},
+      {{-.5f, -.5f, .5f}, {.9f, .6f, .1f}},
+      {{-.5f, -.5f, -.5f}, {.9f, .6f, .1f}},
+      {{.5f, -.5f, -.5f}, {.9f, .6f, .1f}},
+      {{.5f, -.5f, .5f}, {.9f, .6f, .1f}},
 
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = lveSwapChain->getSwapChainExtent();
+      // bottom face (red)
+      {{-.5f, .5f, -.5f}, {.8f, .1f, .1f}},
+      {{.5f, .5f, .5f}, {.8f, .1f, .1f}},
+      {{-.5f, .5f, .5f}, {.8f, .1f, .1f}},
+      {{-.5f, .5f, -.5f}, {.8f, .1f, .1f}},
+      {{.5f, .5f, -.5f}, {.8f, .1f, .1f}},
+      {{.5f, .5f, .5f}, {.8f, .1f, .1f}},
 
-    std::array<VkClearValue, 2> clearValues{};
-    clearValues[0].color = {0.1f, 0.1f, 0.1f, 1.0f};
-    clearValues[1].depthStencil = {1.0f, 0};
-    renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-    renderPassInfo.pClearValues = clearValues.data();
+      // nose face (blue)
+      {{-.5f, -.5f, 0.5f}, {.1f, .1f, .8f}},
+      {{.5f, .5f, 0.5f}, {.1f, .1f, .8f}},
+      {{-.5f, .5f, 0.5f}, {.1f, .1f, .8f}},
+      {{-.5f, -.5f, 0.5f}, {.1f, .1f, .8f}},
+      {{.5f, -.5f, 0.5f}, {.1f, .1f, .8f}},
+      {{.5f, .5f, 0.5f}, {.1f, .1f, .8f}},
 
-    vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo,
-                         VK_SUBPASS_CONTENTS_INLINE);
-
-    auto extent = lveSwapChain->getSwapChainExtent();
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(extent.width);
-    viewport.height = static_cast<float>(extent.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    VkRect2D scissor{{0, 0}, extent};
-    vkCmdSetViewport(commandBuffers[i], 0, 1, &viewport);
-    vkCmdSetScissor(commandBuffers[i], 0, 1, &scissor);
-
-    lvePipeline->bind(commandBuffers[i]);
-    lveModel->bind(commandBuffers[i]);
-    lveModel->draw(commandBuffers[i]);
-
-    vkCmdEndRenderPass(commandBuffers[i]);
-    if (vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS) {
-        throw std::runtime_error("failed to record command buffer");
-    }
+      // tail face (green)
+      {{-.5f, -.5f, -0.5f}, {.1f, .8f, .1f}},
+      {{.5f, .5f, -0.5f}, {.1f, .8f, .1f}},
+      {{-.5f, .5f, -0.5f}, {.1f, .8f, .1f}},
+      {{-.5f, -.5f, -0.5f}, {.1f, .8f, .1f}},
+      {{.5f, -.5f, -0.5f}, {.1f, .8f, .1f}},
+      {{.5f, .5f, -0.5f}, {.1f, .8f, .1f}},
+  };
+  for (auto& v : vertices) {
+    v.position += offset;
+  }
+  return std::make_unique<LveModel>(device, vertices);
 }
 
-void FirstApp::drawFrame() {
-    uint32_t imageIndex;
-    auto result = lveSwapChain->acquireNextImage(&imageIndex);
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        recreateSwapChain();
-        return;
-    }
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        throw std::runtime_error("failed to acquire swapchain image");
-    }
+void FirstApp::loadGameObjects() {
+    std::shared_ptr<LveModel> lveModel = createCubeModel(lveDevice, {0, 0, 0});
 
-    recordCommandBuffer(imageIndex);
-    result = lveSwapChain->submitCommandBuffers(&commandBuffers[imageIndex],
-                                                &imageIndex);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR ||
-        result == VK_SUBOPTIMAL_KHR || lveWindow.wasWindowResized()) {
-        lveWindow.resetWindowResized();
-        recreateSwapChain();
-        return;
-    }
-    if (result != VK_SUCCESS) {
-        throw std::runtime_error("failed to present swapchain image");
-    }
-}
-
-void FirstApp::loadModels() {
-    std::vector<LveModel::Vertex> vertices {
-        {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-        {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-    };
-
-    lveModel = std::make_unique<LveModel>(lveDevice, vertices);
+    auto cube = LveGameObject::createGameObject();
+    cube.model = lveModel;
+    cube.transformComponent.translation = {0.0f, 0.0f, 2.5f};
+    cube.transformComponent.scale = {0.5f, 0.5f, 0.5f};
+    gameObjects.push_back(std::move(cube));
 }
 
 }  // namespace lve
