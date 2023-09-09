@@ -14,7 +14,7 @@ namespace lve {
 
 struct SimplePushConstantData {
     glm::mat4 transform{1.0f};
-    alignas(16) glm::vec3 color;
+    glm::mat4 normalMatrix{1.0f};
 };
 
 SimpleRenderSystem::SimpleRenderSystem(LveDevice& device,
@@ -71,17 +71,10 @@ void SimpleRenderSystem::renderGameObjects(VkCommandBuffer commandBuffer,
     auto projView = camera.getProjection() * camera.getView();
 
     for (auto& o : gameObjects) {
-        o.transformComponent.rotation.y =
-            glm::mod(o.transformComponent.rotation.y + 0.01f,
-                     glm::two_pi<float>());
-
-        o.transformComponent.rotation.x =
-            glm::mod(o.transformComponent.rotation.x + 0.005f,
-                     glm::two_pi<float>());
-
         SimplePushConstantData push{};
-        push.color = o.color;
-        push.transform = projView * o.transformComponent.mat4();
+        auto modelMatrix = o.transformComponent.mat4();
+        push.transform = projView * modelMatrix;
+        push.normalMatrix = o.transformComponent.normalMatrix();
 
         vkCmdPushConstants(commandBuffer, pipelineLayout,
             VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT,

@@ -25,6 +25,8 @@ class LveWindow {
     bool wasWindowResized() const { return framebufferResized; }
     void resetWindowResized() { framebufferResized = false; }
 
+    GLFWwindow* getGlfwWindow() const { return window; }
+
  private:
     static void framebufferResizedCallback(GLFWwindow* window,
                                            int width, int height);

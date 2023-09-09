@@ -20,12 +20,12 @@ add_executable(VulkanTest ${SRCS} ${INCLUDES})
 
 # add include directories
 # set(STB_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/lib/stb)
-# set(TINYOBJ_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/lib/tinyobjloader)
+set(TINYOBJ_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/lib/tinyobjloader)
 
-# target_include_directories(VulkanTest PUBLIC
-#                             ${STB_INCLUDE_DIR}
-#                             ${TINYOBJ_INCLUDE_DIR}
-#                           )
+target_include_directories(VulkanTest PRIVATE
+                            #${STB_INCLUDE_DIR}
+                            ${TINYOBJ_INCLUDE_DIR}
+                          )
 
 # link libraries
 target_link_libraries(VulkanTest PUBLIC
